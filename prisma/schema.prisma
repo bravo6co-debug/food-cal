@@ -1,0 +1,239 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles enum
+enum UserRole {
+  OWNER     // 식당/카페 운영자
+  CHEF      // 셰프
+  SUPPLIER  // 공급업체
+  ADMIN     // 관리자
+}
+
+// Recipe visibility settings
+enum RecipeVisibility {
+  PUBLIC      // 공개
+  PRIVATE     // 비공개
+  PARTNER     // 제휴 매장 한정
+}
+
+// Inquiry status
+enum InquiryStatus {
+  PENDING
+  ANSWERED
+  CLOSED
+}
+
+// User Model
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  password      String
+  role          UserRole     @default(OWNER)
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Relationships
+  restaurant    Restaurant?
+  chef          Chef?
+  supplier      Supplier?
+
+  @@map("users")
+}
+
+// Restaurant/Cafe Owner Profile
+model Restaurant {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  address       String?
+  phone         String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  menus         Menu[]
+  inquiries     Inquiry[]
+
+  @@map("restaurants")
+}
+
+// Chef Profile
+model Chef {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bio           String?
+  specialty     String?
+  experience    Int?     // years of experience
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  recipes       Recipe[]
+
+  @@map("chefs")
+}
+
+// Supplier Profile
+model Supplier {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  companyName   String
+  description   String?
+  address       String?
+  region        String?
+  phone         String?
+  email         String?
+  deliveryInfo  String?  // 배송 조건
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  products      SupplierProduct[]
+  inquiries     Inquiry[]
+
+  @@map("suppliers")
+}
+
+// Recipe Model
+model Recipe {
+  id            String            @id @default(cuid())
+  chefId        String
+  chef          Chef              @relation(fields: [chefId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  servings      Int?              // 인분
+  visibility    RecipeVisibility  @default(PUBLIC)
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  // Relationships
+  ingredients   RecipeIngredient[]
+  menus         Menu[]
+
+  @@map("recipes")
+}
+
+// Base Ingredient (식재료 마스터)
+model Ingredient {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  category      String?  // 카테고리 (채소, 육류, 해산물 등)
+  unit          String   @default("g") // 기본 단위 (g, ml, ea 등)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  recipeIngredients RecipeIngredient[]
+  supplierProducts  SupplierProduct[]
+
+  @@map("ingredients")
+}
+
+// Recipe-Ingredient relationship (레시피에 필요한 재료와 수량)
+model RecipeIngredient {
+  id            String     @id @default(cuid())
+  recipeId      String
+  recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  ingredientId  String
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  quantity      Float      // 수량
+  unit          String     // 단위
+  notes         String?    // 비고 (예: "다진 것", "슬라이스")
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([recipeId, ingredientId])
+  @@map("recipe_ingredients")
+}
+
+// Supplier Product (공급업체가 판매하는 상품)
+model SupplierProduct {
+  id            String     @id @default(cuid())
+  supplierId    String
+  supplier      Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  ingredientId  String
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  productName   String     // 상품명
+  brand         String?    // 브랜드
+  specification String?    // 규격 (예: "1kg", "500g x 10개")
+  price         Float      // 가격
+  unit          String     // 판매 단위
+  minOrder      Int?       // 최소 주문량
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("supplier_products")
+}
+
+// Menu (식당의 메뉴 - 레시피 기반)
+model Menu {
+  id            String      @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  recipeId      String?
+  recipe        Recipe?     @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  name          String
+  salePrice     Float?      // 판매가
+  targetMargin  Float?      // 목표 마진율 (%)
+
+  isActive      Boolean     @default(true)
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("menus")
+}
+
+// Inquiry (견적/문의)
+model Inquiry {
+  id            String        @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  supplierId    String
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  subject       String
+  message       String
+  status        InquiryStatus @default(PENDING)
+  response      String?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  respondedAt   DateTime?
+
+  @@map("inquiries")
+}
